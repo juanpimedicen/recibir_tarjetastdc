@@ -76,6 +76,26 @@ Ejemplo de salida:
 ```
 
 ---
+## Para usar `/usr/src/scripts/ivr/recibir_tarjetastdcact.sh` 
+```bash
+/usr/src/scripts/ivr/recibir_tarjetastdcact.sh '{
+  "success": true,
+  "message": "Consulta de tarjetas exitosa",
+  "data": {
+    "tarjetas": [
+      {
+        "estatusTarjeta": "5"
+      },
+      {
+        "estatusTarjeta": "1"
+      }
+    ]
+  },
+  "code": "000"
+}'
+```
+
+---
 
 ## 🔧 Requisitos
 

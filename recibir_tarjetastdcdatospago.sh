@@ -1,15 +1,42 @@
 #!/bin/bash
 # Script: /usr/src/scripts/ivr/recibir_tarjetastdcdatospago.sh
-# Uso: ./recibir_tarjetastdcdatospago.sh '<json_de_una_tarjeta>'
-# Salida: cadena para READ() uniendo audios con &
+# Uso: ./recibir_tarjetastdcdatospago.sh "<pagoMinimo>" "<saldoContado>"
+# Ej:  ./recibir_tarjetastdcdatospago.sh "0" "160"     # enteros
+#      ./recibir_tarjetastdcdatospago.sh "15.30" "225" # con decimales
+#      ./recibir_tarjetastdcdatospago.sh "15,30" "225" # coma decimal (se normaliza)
 
 # Validación de entrada
-if [ -z "$1" ]; then
-  echo "Uso: $0 '<json_de_una_tarjeta>'"
+if [ -z "$1" ] || [ -z "$2" ]; then
+  echo "Uso: $0 \"<pagoMinimo>\" \"<saldoContado>\""
   exit 1
 fi
 
-JSON="$1"
+# -------- normalización de montos (acepta coma o punto decimal) --------
+normalize_amount() {
+  local s="$1"
+  # quitar espacios
+  s="${s//[[:space:]]/}"
+  # si viene vacío -> 0
+  if [[ -z "$s" ]]; then
+    echo "0"
+    return
+  fi
+  # reemplazar coma por punto
+  s="${s/,/.}"
+  # validar formato numérico simple
+  if [[ ! "$s" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    # si no es numérico, forzar 0
+    echo "0"
+    return
+  fi
+  echo "$s"
+}
+
+PAGO_MINIMO_RAW="$1"
+SALDO_CONTADO_RAW="$2"
+
+PAGO_MINIMO="$(normalize_amount "$PAGO_MINIMO_RAW")"
+SALDO_CONTADO="$(normalize_amount "$SALDO_CONTADO_RAW")"
 
 # Rutas base
 CONVERTED="/var/opt/motion2/server/files/sounds/converted"
@@ -28,7 +55,7 @@ A_261="${CONVERTED}/[261]-1752615205563"        # "marque 2"
 
 # say_number: compone números como en SayNumber() usando librería digits (no dígito a dígito)
 # Soporta: 0-29, decenas (30,40,...,90), centenas exactas (100,200,...,900),
-# y combinaciones simples (e.g., 125 = 100 & 25; 34 = 30 & 4).
+# y combinaciones simples (125 = 100 & 25; 34 = 30 & 4).
 say_number() {
   local n="$1"
   # normalizar a entero (por si llega "007")
@@ -65,11 +92,10 @@ say_number() {
     local r=$(( n % 100 ))            #       45
     out="'$DIGITS/$c'"
     if (( r > 0 )); then
-      # r puede ser 1..99; intentamos directo si <=29 o decena exacta
+      # r 1..99
       if (( r <= 29 )) || (( r < 100 && r % 10 == 0 )); then
         out="$out&'$DIGITS/$r'"
       else
-        # 31..99 no múltiplos de 10 -> decena + unidad
         local d=$(( r / 10 * 10 ))
         local u=$(( r % 10 ))
         out="$out&'$DIGITS/$d'&'$DIGITS/$u'"
@@ -100,14 +126,6 @@ split_amount() {
   echo "$entero|$dec"
 }
 
-# ---------- extraer montos ----------
-PAGO_MINIMO=$(echo "$JSON" | jq -r '.pagoMinimo // 0')
-SALDO_CONTADO=$(echo "$JSON" | jq -r '.saldoContado // 0')
-
-# Si vienen como strings vacíos, forzar 0
-[[ -z "$PAGO_MINIMO" ]] && PAGO_MINIMO=0
-[[ -z "$SALDO_CONTADO" ]] && SALDO_CONTADO=0
-
 # Partir en entero y centavos (pad a 2 dígitos)
 IFS='|' read -r PM_E PM_C <<< "$(split_amount "$PAGO_MINIMO")"
 IFS='|' read -r SC_E SC_C <<< "$(split_amount "$SALDO_CONTADO")"
@@ -115,14 +133,9 @@ IFS='|' read -r SC_E SC_C <<< "$(split_amount "$SALDO_CONTADO")"
 # Construcción
 # Bloque 1: pago mínimo
 OUT="'$A_1099'"
-
-# entero pago mínimo
 OUT="$OUT&$(say_number "$PM_E")"
-# "Bolívares y"
 OUT="$OUT&'$A_1026'"
-# céntimos pago mínimo (decimales como número compuesto)
 OUT="$OUT&$(say_number "$PM_C")&'$A_2056'"
-# marque 1
 OUT="$OUT&'$A_260'"
 
 # Bloque 2: monto total (saldo contado)
@@ -130,11 +143,9 @@ OUT="$OUT&'$A_2000'"
 OUT="$OUT&$(say_number "$SC_E")"
 OUT="$OUT&'$A_1026'"
 OUT="$OUT&$(say_number "$SC_C")&'$A_2056'"
-# marque 2
 OUT="$OUT&'$A_261'"
 
 # Bloque 3: otro monto, marque 3
 OUT="$OUT&'$A_2001'"
 
 echo "$OUT"
-

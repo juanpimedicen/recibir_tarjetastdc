@@ -12,60 +12,126 @@ MONTO="$1"
 CUENTA="$2"
 TARJETA="$3"
 
-CONVERTED="/var/opt/motion2/server/files/sounds/converted"
+CONVERTED=""
 DIGITS="/var/lib/asterisk/sounds/es/digits"
 
 # Audios fijos
-A_723="${CONVERTED}/[723]-1752615225781"
-A_1026="${CONVERTED}/[1026]-1754406097542"
-A_2056="${CONVERTED}/[2056]-1754409695005"
-A_805="${CONVERTED}/[805]-1752615228467"
-A_1027="${CONVERTED}/[1027]-1752614403059"
-A_1039="${CONVERTED}/[1039]-1752614412501"
+A_723="[723]-1752615225781"      # "Usted introdujo"
+A_1026="[1026]-1754406097542"    # "Bolívares y"
+A_2056="[2056]-1754409695005"    # "céntimos"
+A_805="[805]-1752615228467"      # "Para debitar de la cuenta terminada en"
+A_1027="[1027]-1752614403059"    # "a la tarjeta de crédito terminada en"
+A_1039="[1039]-1752614412501"    # "Si es correcto... marque 1... 2."
 
-# Función para decir números como en SayNumber()
-say_number() {
+# =========================
+# Helpers de locución numérica
+# =========================
+
+# 0..99 directo (usa archivos 0.gsm..99.gsm)
+say_0_99_direct() {
+  local n="$1"
+  n=$((10#$n))
+  echo "'$n'"
+}
+
+# 0..999: centenas exactas (100..900) si corresponde; 1xx no exacto -> 'ciento' + (resto 0..99 directo)
+say_0_999() {
   local n="$1"
   n=$((10#$n))
 
-  if [[ $n -eq 0 ]]; then
-    echo "'$DIGITS/0'"
+  if (( n < 100 )); then
+    echo "$(say_0_99_direct "$n")"
     return
   fi
 
-  if [[ $n -le 29 ]] || (( n < 100 && n % 10 == 0 )) || (( n % 100 == 0 && n <= 900 )); then
-    echo "'$DIGITS/$n'"
+  if (( n % 100 == 0 )) && (( n <= 900 )); then
+    echo "'$n'"
     return
   fi
 
+  local c=$(( n / 100 ))     # 1..9
+  local r=$(( n % 100 ))     # 1..99
   local out=""
-  if (( n >= 100 )); then
-    local c=$(( n / 100 * 100 ))
-    local r=$(( n % 100 ))
-    out="'$DIGITS/$c'"
-    if (( r > 0 )); then
-      if (( r <= 29 )) || (( r < 100 && r % 10 == 0 )); then
-        out="$out&'$DIGITS/$r'"
-      else
-        local d=$(( r / 10 * 10 ))
-        local u=$(( r % 10 ))
-        out="$out&'$DIGITS/$d'&'$DIGITS/$u'"
-      fi
-    fi
-    echo "$out"
-    return
+  if (( c == 1 )); then
+    out="'ciento'"
+  else
+    out="'${c}00'"
   fi
-
-  local d=$(( n / 10 * 10 ))
-  local u=$(( n % 10 ))
-  out="'$DIGITS/$d'"
-  if (( u > 0 )); then
-    out="$out&'$DIGITS/$u'"
-  fi
+  out="$out&$(say_0_99_direct "$r")"
   echo "$out"
 }
 
-# Función para decir dígito por dígito (SayDigits)
+# Enteros grandes en grupos de 3 + escalas:
+# idx=0 unidades, 1 thousand, 2 million(s), 3 thousand&millions, 4 billion(s), 5 thousand&billions
+say_integer_large() {
+  local n="$1"
+  n=$(echo "$n" | sed 's/^0\+\([0-9]\)/\1/')
+  [[ -z "$n" ]] && n="0"
+  if [[ "$n" == "0" ]]; then echo "'0'"; return; fi
+
+  declare -a groups=()
+  local s="$n"
+  while [[ -n "$s" ]]; do
+    if (( ${#s} > 3 )); then
+      groups+=( "${s: -3}" )
+      s="${s:0:${#s}-3}"
+    else
+      groups+=( "$s" )
+      s=""
+    fi
+  done
+
+  local out=""
+  local first=1
+  for idx in "${!groups[@]}"; do
+    local g="${groups[$idx]}"
+    local g3
+    g3=$(printf "%03d" "$g")
+    [[ "$g3" == "000" ]] && continue
+
+    local chunk=""
+    case $idx in
+      0)  chunk="$(say_0_999 "$g3")" ;;
+      1)  if [[ "$g3" == "001" ]]; then
+            chunk="'thousand'"
+          else
+            chunk="$(say_0_999 "$g3")&'thousand'"
+          fi ;;
+      2)  if [[ "$g3" == "001" ]]; then
+            chunk="$(say_0_999 1)&'million'"
+          else
+            chunk="$(say_0_999 "$g3")&'millions'"
+          fi ;;
+      3)  if [[ "$g3" == "001" ]]; then
+            chunk="'thousand'&'millions'"
+          else
+            chunk="$(say_0_999 "$g3")&'thousand'&'millions'"
+          fi ;;
+      4)  if [[ "$g3" == "001" ]]; then
+            chunk="$(say_0_999 1)&'billion'"
+          else
+            chunk="$(say_0_999 "$g3")&'billions'"
+          fi ;;
+      5)  if [[ "$g3" == "001" ]]; then
+            chunk="'thousand'&'billions'"
+          else
+            chunk="$(say_0_999 "$g3")&'thousand'&'billions'"
+          fi ;;
+      *)  chunk="$(say_0_999 "$g3")" ;;
+    esac
+
+    if (( first )); then
+      out="$chunk"
+      first=0
+    else
+      out="$chunk&$out"
+    fi
+  done
+
+  echo "$out"
+}
+
+# Dígitos uno a uno
 say_digits() {
   local str="$1"
   local out=""
@@ -73,18 +139,20 @@ say_digits() {
   for (( i=0; i<${#str}; i++ )); do
     local d="${str:$i:1}"
     if [[ $d =~ [0-9] ]]; then
-      if [[ $first -eq 1 ]]; then
-        out="'$DIGITS/$d'"
+      if (( first )); then
+        out="'$d'"
         first=0
       else
-        out="$out&'$DIGITS/$d'"
+        out="$out&'$d'"
       fi
     fi
   done
   echo "$out"
 }
 
-# Normalizar monto a 2 decimales
+# =========================
+# Normalización del monto
+# =========================
 FMT=$(echo "$MONTO" | awk '{printf "%.2f", $0}')
 ENTERO="${FMT%.*}"
 CENT="${FMT#*.}"
@@ -93,16 +161,24 @@ CENT="${FMT#*.}"
 CUENTA4="${CUENTA: -4}"
 TARJETA4="${TARJETA: -4}"
 
+# =========================
 # Construcción del READ
+# =========================
 OUT="'$A_723'"
-OUT="$OUT&$(say_number "$ENTERO")"
+# Parte entera con escalas
+OUT="$OUT&$(say_integer_large "$ENTERO")"
+# "Bolívares y"
 OUT="$OUT&'$A_1026'"
-OUT="$OUT&$(say_number "$CENT")"
-OUT="$OUT&'$A_2056'"
-OUT="$OUT&'$A_805'"
-OUT="$OUT&$(say_digits "$CUENTA4")"
-OUT="$OUT&'$A_1027'"
-OUT="$OUT&$(say_digits "$TARJETA4")"
+# Céntimos (00 => 0)
+CENT_NUM=$((10#$CENT))
+OUT="$OUT&$(say_0_99_direct "$CENT_NUM")&'$A_2056'"
+
+# "Para debitar..." + últimos 4 dígitos (SayDigits)
+OUT="$OUT&'$A_805'&$(say_digits "$CUENTA4")"
+# "a la tarjeta..." + últimos 4 dígitos (SayDigits)
+OUT="$OUT&'$A_1027'&$(say_digits "$TARJETA4")"
+
+# Confirmación final
 OUT="$OUT&'$A_1039'"
 
 echo "$OUT"

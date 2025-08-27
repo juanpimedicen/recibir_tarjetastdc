@@ -43,13 +43,13 @@ CONVERTED="/var/opt/motion2/server/files/sounds/converted"
 DIGITS="/var/lib/asterisk/sounds/es/digits"
 
 # Audios fijos
-A_1099="${CONVERTED}/[1099]-1752614466659"      # "Para abonar el pago mínimo, equivalente a"
-A_1026="${CONVERTED}/[1026]-1754406097542"      # "Bolívares y"
-A_2056="${CONVERTED}/[2056]-1754409695005"      # "céntimos"
-A_2000="${CONVERTED}/[2000]-1752614467500"      # "Para abonar el monto total de la deuda, equivalente a"
-A_2001="${CONVERTED}/[2001]-1752614468355"      # "Para abonar otro monto, marque 3"
-A_260="${CONVERTED}/[260]-1752615204711"        # "marque 1"
-A_261="${CONVERTED}/[261]-1752615205563"        # "marque 2"
+A_1099="[1099]-1752614466659"      # "Para abonar el pago mínimo, equivalente a"
+A_1026="[1026]-1754406097542"      # "Bolívares y"
+A_2056="[2056]-1754409695005"      # "céntimos"
+A_2000="[2000]-1752614467500"      # "Para abonar el monto total de la deuda, equivalente a"
+A_2001="[2001]-1752614468355"      # "Para abonar otro monto, marque 3"
+A_260="[260]-1752615204711"        # "marque 1"
+A_261="[261]-1752615205563"        # "marque 2"
 
 # ---------- helpers ----------
 
@@ -64,25 +64,25 @@ say_number() {
 
   # 0 directo
   if [[ $n -eq 0 ]]; then
-    echo "'$DIGITS/0'"
+    echo "'0'"
     return
   fi
 
   # 1..29 (directo)
   if [[ $n -le 29 ]]; then
-    echo "'$DIGITS/$n'"
+    echo "'$n'"
     return
   fi
 
   # decenas exactas 30..90
   if (( n < 100 )) && (( n % 10 == 0 )); then
-    echo "'$DIGITS/$n'"
+    echo "'$n'"
     return
   fi
 
   # centenas exactas 100..900
   if (( n >= 100 )) && (( n % 100 == 0 )) && (( n <= 900 )); then
-    echo "'$DIGITS/$n'"
+    echo "'$n'"
     return
   fi
 
@@ -90,15 +90,15 @@ say_number() {
   if (( n >= 100 )); then
     local c=$(( n / 100 * 100 ))      # 345 -> 300
     local r=$(( n % 100 ))            #       45
-    out="'$DIGITS/$c'"
+    out="'$c'"
     if (( r > 0 )); then
       # r 1..99
       if (( r <= 29 )) || (( r < 100 && r % 10 == 0 )); then
-        out="$out&'$DIGITS/$r'"
+        out="$out&'$r'"
       else
         local d=$(( r / 10 * 10 ))
         local u=$(( r % 10 ))
-        out="$out&'$DIGITS/$d'&'$DIGITS/$u'"
+        out="$out&'$d'&'$u'"
       fi
     fi
     echo "$out"
@@ -108,9 +108,9 @@ say_number() {
   # 30..99 no múltiplos de 10 -> decena + unidad
   local d=$(( n / 10 * 10 ))
   local u=$(( n % 10 ))
-  out="'$DIGITS/$d'"
+  out="'$d'"
   if (( u > 0 )); then
-    out="$out&'$DIGITS/$u'"
+    out="$out&'$u'"
   fi
   echo "$out"
 }
